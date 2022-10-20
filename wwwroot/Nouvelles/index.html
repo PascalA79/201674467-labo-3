@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Gestion de nouvelles</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css" rel="stylesheet">
+        <link rel="stylesheet"
+            href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/themes/smoothness/jquery-ui.css">
+        <link rel="stylesheet" href="css/site.css">
+        <link rel="icon" href="favicon.ico">
+    </head>
+
+    <body>
+        <div class="mainContainer">
+            <div class="headerPanel">
+                <div class="headerLayout">
+                    <img src="favicon.ico" alt="" data-toggle="tooltip"
+                        title="Gestionnaire de nouvelles - Auteur Pascal Arès - Collège Lionel-Groulx">
+                    <span class="header">Gestionnaire de Nouvelles </span>
+                    <span class="cmd fa fa-plus-square" id="newNouvelleCmd" title="Ajouter une nouvelle"
+                        data-toggle="tooltip"></span>
+                    <span class="cmd fa fa-search" title="Afficher/masquer la barre de recherche"
+                        data-toggle="tooltip"></span>
+                </div>
+                <div id="searchBar">
+                    <div class="searchBarLayout">
+                        <select id="searchCategorie" class="form-control">
+                            <!-- filled programmatically-->
+                        </select>
+                        <span> <!-- skip a column --> </span>
+                        <input type="search" id="searchTitle" class="form-control" placeholder="Recherche de Nouvelles" />
+                        <span> <!-- skip a column --> </span>
+                        <span class="cmd fa fa-refresh"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="scrollContainer">
+                <div id="NouvellesList">
+                    <!-- filled programmatically-->
+                </div>
+            </div>
+            <!-- Dialogs containers-->
+            <div>
+                <div id="nouvelleDlg">
+                    <form id="nouvelleForm">
+                        <input type="hidden" id="Id_input" value="0">
+
+                        <label for="title_input">Titre</label>
+                        <input type="text" id="title_input" class="form-control" required invalidMessage="Obligatoire">
+
+                        <label for="url_input">Hyperlien de l'image</label>
+                        <input type="url" id="url_input" class="form-control URL" required
+                            invalidMessage="Lien invalide">
+
+                        <label for="categorie_input">Catégorie</label>
+                        <input type="text" id="categorie_input" class="form-control" required
+                            invalidMessage="Obligatoire">
+                            
+                        <label for="text_input">Texte</label>
+                        <textarea rows="5" id="text_input" class="form-control" required
+                            invalidMessage="Texte invalide"></textarea>
+                    </form>
+                </div>
+                <div id="confirmDeleteDlg">
+                    <span id="confirmationMessage"></span>
+                </div>
+                <div id="errorDlg">
+                    <span id="errorMessage"></span>
+                </div>
+            </div>
+        </div>
+        <script src="js/jquery.js"></script>
+        <script src="js/jquery.maskedinput.js"></script>
+        <script src="js/jquery-ui.min.js"></script>
+        <!--
+        <script src="https://code.jquery.com/jquery-3.6.1.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.maskedinput/1.4.1/jquery.maskedinput.js"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
+-->
+        <script src="js/customValidation.js"></script>
+        <script src="js/api.js"></script>
+        <script defer>
+
+            const periodicRefreshPeriod = 10;
+            let holdCheckETag = false;
+            let currentETag = "";
+            let createMode = true;
+            let searchCategorie = "";
+            let searchTitle = "";
+            let hideSearchBar = true;
+            let nouvelleIdToDelete = 0; // used by confirmDeleteDlg
+            let selectedCategorie = "";
+            
+            init_UI();
+            HEAD(checkETag, error);
+            
+            setInterval(() => { HEAD(checkETag, error) }, periodicRefreshPeriod * 1000);
+
+            let limit = 2;
+            let offset = 0;
+            let previousScrollPosition = 0;
+
+            $(".scrollContainer").scroll(function () {
+
+            let containerHeight = Math.round(document.querySelector(".scrollContainer").scrollHeight)
+            let containerPosition=Math.ceil($(".scrollContainer").scrollTop()+$(".scrollContainer").height())
+            // console.table({scrollTop:$(".scrollContainer").scrollTop(), height:$(".scrollContainer").height(),scrollHeight:document.querySelector(".scrollContainer").scrollHeight,
+            // total:Math.ceil($(".scrollContainer").scrollTop()+$(".scrollContainer").height())});
+            if (containerHeight <= containerPosition+$(".scrollContainer").height()) {
+                offset++;
+                console.log("Scrolling offset=", offset);
+                previousScrollPosition = $(".scrollContainer").scrollTop();
+                getNouvellesList();
+            }
+            });
+
+            function checkETag(ETag) {
+                if (!holdCheckETag && ETag != currentETag) {
+                    currentETag = ETag;
+                        getNouvellesList(1);
+                    offset=0
+                }
+            }
+
+            function getNouvellesList(forceRefresh=false) {
+                function prepareQueryString() {
+                    let queryString = "?sort=Categorie&sort=Title";
+                    if (!hideSearchBar) {
+                        selectedCategorie = $("#searchCategorie").val();
+                        let searchTitle = $("#searchTitle").val();
+                        if (selectedCategorie != "")
+                            queryString += "&Categorie=" + selectedCategorie;
+                        if (searchTitle != "")
+                            queryString += "&Titre=*" + searchTitle + "*";
+                    }
+                    queryString +=`&limit=${limit}&offset=${offset}`;
+                    console.log('offset: ',offset)
+                    console.log('limit: ',limit)
+
+                    return queryString;
+                }
+                    
+                    const freezeOffset= offset;
+                    const freezeLimit=limit;
+                    let currentScrollTop=$(".scrollContainer").scrollTop()
+                    if(forceRefresh)
+                    {
+
+                        $("#NouvellesList").empty()
+                        limit=(offset+1)*limit
+                        offset=0;
+                        GET_ALL((nouvelles, ETag)=>{
+                                refreshNouvellesList(nouvelles, ETag);
+                                offset=freezeOffset
+                                limit=freezeLimit;
+                                $(".scrollContainer").scrollTop(currentScrollTop)
+                            }, error, prepareQueryString());
+                    }
+                    else 
+                    GET_ALL(refreshNouvellesList, error, prepareQueryString());
+                GET_ALL(refreshCategorieList, error, "?fields=Categorie");
+            }
+            function refreshCategorieList(categories) {
+                $("#searchCategorie").empty();
+                $("#searchCategorie").append("<option value=''>Toutes les catégories</option>");
+                for (let item of categories) {
+                    let categorie = item.Categorie;
+                    let selected = (selectedCategorie == categorie ? " selected " : "");
+                    $("#searchCategorie").append(`<option value='${categorie}' ${selected}>${categorie}</option>`);
+                }
+            }
+            function refreshNouvellesList(Nouvelles, ETag) {
+                function makeFavicon(url) {
+                    let link = $(`<a href='${url}' target='_blank'></a>`)
+                    link.append($(`<img class=favicon src="${url}">`));
+                    return link;
+                }
+                function insertIntonouvelleList(nouvelle) {
+                    let carteNouvelle=
+                    `   <div class="titre">${nouvelle.Titre}</div>
+                        <div class="migrature">
+                            <img src="${nouvelle.ImageUrl}">
+                                <div class="cmd editCmd fa fa-pencil-square" nouvelleid="${nouvelle.Id}" title="Editer ${nouvelle.Titre}" data-toggle="tooltip"></div>
+                                <div class="cmd deleteCmd fa fa-window-close" nouvelleid="${nouvelle.Id}" title="Effacer ${nouvelle.Titre}" data-toggle="tooltip"></div>
+                        </div>
+                        <div class="description">${nouvelle.Texte}</div>`;
+                    let catElem = $(`<div class="ellipsis">${nouvelle.Categorie}</div>`);
+                    let titElem = $(`<div  class="ellipsis">${nouvelle.Titre}</div>`);
+                    let editCmd = $(`<div class="cmd editCmd fa fa-pencil-square" nouvelleid="${nouvelle.Id}" title="Editer" data-toggle="tooltip">`);
+                    let deleteCmd = $(`<div class="cmd deleteCmd fa fa-window-close" nouvelleid="${nouvelle.Id}" title="Effacer" data-toggle="tooltip">`);
+                    let nouvelleRow = $("<div class='carte'>");
+                    
+                   
+                    //nouvelleRow.append(catElem);
+                    nouvelleRow.append(carteNouvelle);
+                    //nouvelleRow.append(titElem);
+                    //nouvelleRow.append(editCmd);
+                    //nouvelleRow.append(deleteCmd);
+                    $("#NouvellesList").append(nouvelleRow);
+                }
+
+                currentETag = ETag;
+                    
+                let currentCategorie = "";
+                for (let nouvelle of Nouvelles) {
+                    if (nouvelle.categorie !== currentCategorie)
+                        currentCategorie = nouvelle.categorie;
+                    else
+                        nouvelle.categorie = "";
+                    insertIntonouvelleList(nouvelle);
+                }
+                $(".editCmd").click(e => { editnouvelle(e) });
+                $(".deleteCmd").click(e => { deletenouvelle(e) });
+                $('[data-toggle="tooltip"]').tooltip();
+            }
+
+            function error(status) {
+                let errorMessage = "";
+                switch (status) {
+                    case 0:
+                        errorMessage = "Le service ne répond pas";
+                        break;
+                    case 400:
+                    case 422:
+                        errorMessage = "Requête invalide";
+                        break;
+                    case 404:
+                        errorMessage = "Service ou données introuvables";
+                        break;
+                    case 409:
+                        errorMessage = "Conflits de données: hyperlien de l'image existe déjà";
+                        break;
+                    case 500:
+                        errorMessage = "Erreur interne du service";
+                        break;
+                    default: break;
+                }
+                $("#errorMessage").text(errorMessage);
+                $("#errorDlg").dialog('open');
+            }
+
+            function newNouvelle() {
+                holdCheckETag = true;
+                createMode = true;
+                resetnouvelleForm()
+                $("#nouvelleDlg").dialog('option', 'title', 'Ajout de nouvelle');
+                $("#nouvelleDlgOkBtn").text("Ajouter");
+                $("#nouvelleDlg").dialog('open');
+            }
+            function editnouvelle(e) {
+                holdCheckETag = true;
+                createMode = false;
+                GET_ID(e.target.getAttribute("nouvelleid"), nouvelleToForm, error);
+                holdCheckETag = true;
+                $("#nouvelleDlg").dialog('option', 'title', 'Modification de nouvelle');
+                $("#nouvelleDlgOkBtn").text("Modifier");
+                $("#nouvelleDlg").dialog('open');
+            }
+            function deletenouvelle(e) {
+                holdCheckETag = true;
+                nouvelleIdToDelete = e.target.getAttribute("nouvelleid")
+                GET_ID(
+                    nouvelleIdToDelete,
+                    nouvelle => {
+                        $("#confirmationMessage").html("Voulez-vous vraiment effacer la nouvelle <b>" + nouvelle.Titre + "</b>?")
+                    },
+                    error
+                );
+                holdCheckETag = true;
+                $("#confirmDlg").dialog('option', 'title', 'Retrait de nouvelle...');
+                $("#confirmDeleteDlgOkBtn").text("Effacer");
+                $("#confirmDeleteDlg").dialog('open');
+            }
+
+            function resetnouvelleForm() {
+                $("#Id_input").val("0");
+                $("#title_input").val("");
+                $("#url_input").val("");
+                $("#categorie_input").val("");
+                $("#text_input").val("");
+                $("#date_input").val("");
+
+            }
+            function nouvelleFromForm() {
+                if ($("#nouvelleForm")[0].checkValidity()) {
+                    let nouvelle = { 
+                        Id: parseInt($("#Id_input").val()), 
+                        Titre: $("#title_input").val(), 
+                        ImageUrl: $("#url_input").val(), 
+                        Categorie: $("#categorie_input").val(),
+                        Texte: $("#text_input").val(),
+                        Date: $("#date_input").val(),
+                       };
+                    return nouvelle;
+                } else {
+                    $("#nouvelleForm")[0].reportValidity()
+                }
+                return false;
+            }
+            function nouvelleToForm(nouvelle) {
+                $("#Id_input").val(nouvelle.Id);
+                $("#title_input").val(nouvelle.Titre);
+                $("#url_input").val(nouvelle.ImageUrl);
+                $("#categorie_input").val(nouvelle.Categorie);
+                $("#text_input").val(nouvelle.Texte);
+                $("#date_input").val(new Date(nouvelle.Date));
+            }
+
+            function init_UI() {
+                $("#newNouvelleCmd").click(newNouvelle)
+                $("#searchCategorie").change(() => { selectedCategorie = $("#searchCategorie").val();/* getNouvellesList();*/ })
+
+                $(".fa-refresh").click(e => { 
+                    $("#NouvellesList").empty();
+                    offset=0;
+                    getNouvellesList() })
+                    
+                    $(".fa-search").click(e => {
+                    offset=0;
+                    hideSearchBar = !hideSearchBar;
+                    if (hideSearchBar)
+                        $("#searchBar").hide();
+                    else
+                    {
+                        $("#searchBar").show();
+                    }
+                    $("#NouvellesList").empty()
+                    getNouvellesList();
+                })
+
+                $("#nouvelleDlg").dialog({
+                    title: "Nouvelle nouvelle",
+                    autoOpen: false,
+                    modal: true,
+                    show: { effect: 'fade', speed: 400 },
+                    hide: { effect: 'fade', speed: 400 },
+                    width: 400,
+                    minWidth: 400,
+                    maxWidth: 500,
+                    height: 500,
+                    minHeight: 440,
+                    maxHeight: 880,
+                    position: { my: "top", at: "top", of: window },
+                    buttons: [{
+                        id: "nouvelleDlgOkBtn",
+                        text: "Title will be changed dynamically",
+                        click: function () {
+                            let nouvelle = nouvelleFromForm();
+                            if (nouvelle) {
+                                if (createMode)
+                                    POST(nouvelle, ()=>getNouvellesList(1), error);
+                                else
+                                    PUT(nouvelle, ()=>getNouvellesList(1), error);
+                                resetnouvelleForm();
+                                holdCheckETag = false;
+                                $(this).dialog("close");
+                            }
+                        }
+                    },
+                    {
+                        text: "Annuler",
+                        click: function () {
+                            holdCheckETag = false;
+                            $(this).dialog("close");
+                        }
+                    }]
+                });
+
+                $("#confirmDeleteDlg").dialog({
+                    title: "Attention!",
+                    autoOpen: false,
+                    modal: true,
+                    show: { effect: 'fade', speed: 400 },
+                    hide: { effect: 'fade', speed: 400 },
+                    width: 500, minWidth: 500, maxWidth: 500,
+                    height: 230, minHeight: 230, maxHeight: 230,
+                    position: { my: "top", at: "top", of: window },
+                    buttons: [{
+                        id: "confirmDeleteDlgOkBtn",
+                        text: "Oui",
+                        click: function () {
+                            holdCheckETag = false;
+                            if (nouvelleIdToDelete)
+                                DELETE(nouvelleIdToDelete, ()=>getNouvellesList(1), error);
+                            nouvelleIdToDelete = 0;
+                            $(this).dialog("close");
+                        }
+                    },
+                    {
+                        text: "Annuler",
+                        click: function () {
+                            holdCheckETag = false;
+                            nouvelleIdToDelete = 0;
+                            $(this).dialog("close");
+                        }
+                    }]
+                });
+
+                $("#errorDlg").dialog({
+                    title: "Erreur...",
+                    autoOpen: false,
+                    modal: true,
+                    show: { effect: 'fade', speed: 400 },
+                    hide: { effect: 'fade', speed: 400 },
+                    width: 500, minWidth: 500, maxWidth: 500,
+                    height: 230, minHeight: 230, maxHeight: 230,
+                    position: { my: "top", at: "top", of: window },
+                    buttons: [{
+                        text: "Fermer",
+                        click: function () {
+                            holdCheckETag = false;
+                            nouvelleIdToDelete = 0;
+                            $(this).dialog("close");
+                        }
+                    }]
+                });
+            }
+        </script>
+    </body>
+
+</html>
