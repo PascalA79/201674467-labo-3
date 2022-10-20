@@ -1,4 +1,4 @@
-const apiBaseURL = "http://localhost:5000/api/nouvelles";
+const apiBaseURL = location.origin;
 
 function HEAD(successCallBack, errorCallBack) {
     $.ajax({
